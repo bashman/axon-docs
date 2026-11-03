@@ -1,0 +1,303 @@
+% Build with pdflatex, xelatex or lualatex (no fontspec, no bidi options).
+\documentclass[11pt, a4paper]{article}
+\usepackage[a4paper, margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{verbatim}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]{hyperref}
+
+\newcommand{\pc}{\%}
+\newcommand{\cost}{\mathrm{C}}
+\newcommand{\Esp}{\mathbb{E}}
+
+\title{\textbf{Toward an Agent-Native Interface: Verifiable Immutable Graphs, Inference Cost per Verified Task, and the Generative Paradox}}
+\author{José Luis Regalado\\\href{mailto:djdaga@gmail.com}{\texttt{djdaga@gmail.com}}}
+\date{November 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Source code serves two purposes at once: it is an instruction for the machine and a medium of communication between people. When the operational author is an agent, that duality can make inference more expensive. We present AXON, an experimental substrate in which the agent builds programs by mutating a typed Merkle graph, under an executable specification that the agent cannot modify, with human-readable projections for oversight. We propose the \emph{inference cost per correct, verified task} as the decision metric, rather than the volume of text processed. In a preregistered campaign of 50 runs (tasks T2--T5, same model in both arms), AXON matched the baseline success rate (25/25 in both arms, on visible and hidden cases), with 15.6\pc{} fewer tokens and a neutral monetary cost (+1.4\pc, with an interval compatible with either a gain or a loss). This neutrality is not a dead end: the cost decomposition shows where the margin lies and why it is reachable. We argue that this margin comes from components that \emph{fine-tuning} the model on the interface can directly improve: the fixed instruction prefix, the repair iterations, and the need for a larger model. We formalize this hypothesis with a multiplicative cost model, state falsifiable predictions, and propose an experimental design to test it. We do not yet present measurements with fine-tuning; we contribute a working substrate, a baseline measurement with equivalent success, an identified mechanism, and a protocol ready to be run. We also discuss the \emph{generative paradox} (Trifonov and Levit, 2026) as a design opportunity: the same interface that makes inference cheaper can return more capacity to govern the system to the person, not less, so reducing costs and improving the human experience are mutually reinforcing goals.
+\end{abstract}
+
+\section{Introduction}
+
+Modules, design patterns, and naming conventions are not requirements of the machine; they are tools for reducing the cognitive load that complex systems place on people \cite{cao2026}. Agents based on language models change this economy: they can traverse large codebases, but they do so through an interface designed for people (files, directory trees, diffs, repeated names), with costs inherent to that interface: context that is re-read, dependencies that are reconstructed, and constraints that are discovered only when tests are run.
+
+This work makes three contributions:
+\begin{enumerate}[nosep]
+  \item It describes AXON \cite{axon2026}, a construction substrate for agents (typed Merkle graph, immutable specification, human-readable projections) and delimits precisely what is implemented.
+  \item It reports, without omissions, the measurements of a preregistered campaign, and interprets them with a metric of inference cost per verified task.
+  \item It formulates a cost model and a falsifiable hypothesis (with four predictions, H1--H4, Section~\ref{sec:finetune}): that fine-tuning a model on this interface reduces the cost per verified task beyond what the interface achieves on its own. This third contribution is a \emph{proposal}, not a result.
+\end{enumerate}
+
+\section{Theoretical Framework and Limits of the Sources}
+\label{sec:complexity}
+
+Cao \cite{cao2026} argues that, in a system of $n$ components, the space of possible interactions grows exponentially, while the human capacity to reason about it is essentially constant. The scope of the argument needs to be stated precisely: his Proposition 2.1 is written as $P(n)\in\Theta(2^n)$, but its justification counts the $2^{\binom{n}{2}}$ possible dependency graphs and presents the result as an \emph{upper bound} (``real systems do not realize all configurations''). We therefore take it as qualitative motivation rather than as a result demonstrated for real systems.
+
+Cao also cites the EvoClaw benchmark (Deng et al., 2026), where performance drops from more than $80\pc$ on isolated tasks to at most $38\pc$ under continuous software evolution. We use that figure as it appears in the source (``$>80\pc$ to $\le 38\pc$''); we do not restate it as a percentage drop because the source does not.
+
+Trifonov and Levit \cite{trifonov2026} is a \emph{position paper} written primarily for education. It distinguishes four manifestations of the generative paradox (performance, assistance, ownership, and capability stock) and puts forward falsifiable predictions, not results in software engineering. We use it as design guidance (Section~\ref{sec:paradox}), not as evidence about coding agents.
+
+\section{AXON: Verifiable Representation and Decoupled Interfaces}
+\label{sec:axon}
+
+\subsection{Merkle Graph and Executable Specification}
+
+The unit of construction is an immutable node identified by the BLAKE3 hash of a canonical binary encoding; children are referenced by identifier, so the identity of an expression incorporates its structure. A change creates new nodes, and earlier versions remain. Names and roots are controlled mutable pointers.
+
+This does not prevent the agent from proposing a wrong solution; it prevents a mutation from silently changing the identity of what is already stored, and it rejects, before they are activated, definitions that violate shape, types, or effects.
+
+A person provides a read-only executable \emph{spec}: nominal types, storage, capabilities, effect bounds, and acceptance cases (visible and hidden). The verifier checks every definition at the write boundary and derives transitive effects; a redefinition that exceeds the granted authority is rejected even if its tests return the expected value. Each invocation runs inside a transaction that rolls back both the KV store and SQL on error. An incomplete spec cannot detect properties it never declared.
+
+\subsection{Agent Interface and Human Projections}
+
+Figure~\ref{fig:arch} summarizes the flow.
+
+The agent operates through MCP tools (\texttt{define\_many}, \texttt{query\_graph}, \texttt{run\_spec}, atomic replacement of dependents). The current implementation uses a compact textual syntax as the transport: it is translated into a canonical graph and is not the persistent source code, but neither does it remove text from the interface. For people, the graph is projected as pseudocode and, for the supported subset, exported as a standalone TypeScript module. That output is a view for inspection, auditing, and migration, not what the agent builds.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figs/en/fig_arch.pdf}
+\caption{AXON data flow. Blue: elements under human control; orange: the model; green: the deterministic substrate. The agent modifies the graph only through the verifier; whatever is rejected returns as a structured error.}
+\label{fig:arch}
+\end{figure}
+
+\section{Metric: Inference Cost per Verified Task}
+\label{sec:metric}
+
+A smaller volume of processed text is not an end in itself: it may be irrelevant to monetary cost (cached input, uncached input, and output are priced differently) or may come with a lower success rate. We adopt as our metric the expected inference cost of obtaining a deliverable that satisfies the spec:
+\begin{equation}
+\bar{\cost} \;=\; \frac{\Esp[\cost_{\text{run}}]}{p},
+\qquad
+\cost_{\text{run}} \;=\; c_{\mathrm{in}}\,N_{\mathrm{in}} + c_{\mathrm{cache}}\,N_{\mathrm{cache}} + c_{\mathrm{out}}\,N_{\mathrm{out}},
+\label{eq:cost}
+\end{equation}
+where $p$ is the probability that a run passes both the visible and the hidden cases, $N_{\mathrm{in}}, N_{\mathrm{cache}}, N_{\mathrm{out}}$ are the uncached input, cached input, and output tokens, and $c_\bullet$ are their unit prices. If retries are independent, $1/p$ is the expected number of runs per verified deliverable. Latency, number of tool calls, and human review effort, which \eqref{eq:cost} does not capture, should also be reported.
+
+We further decompose the cost of a run into a fixed prefix $F$ (tool descriptions and instructions, repeated on every turn), $T$ iterations, and a variable context $H_t$ per iteration:
+\begin{equation}
+N_{\mathrm{in}}+N_{\mathrm{cache}} \;=\; \sum_{t=1}^{T}\bigl(F+H_t\bigr).
+\label{eq:decomp}
+\end{equation}
+
+\paragraph{Spec determinism and the scope of $p$.} The spec is deterministic; the agent is not. This brings one advantage and three caveats. The advantage is that verification is cheap, repeatable, and requires no human judgment: every run is classified unambiguously, which makes $p$ measurable and allows trajectories to be filtered automatically for fine-tuning (Section~\ref{sec:finetune}). The caveats are: (i) \emph{verified} means that the run satisfies the spec, not that it is correct; an incomplete spec makes $p$ overestimate actual quality, which is why hidden cases matter; (ii) a model trained against a verifier may learn to pass the visible cases without generalizing, so evaluation must use hidden cases and held-out task families; (iii) the assumption of independent retries in \eqref{eq:cost} is weak, because with the same model and the same task a failure tends to repeat, so $\Esp[\cost]/p$ may underestimate the cost; it is advisable to estimate it from the empirical per-task cost distribution.
+
+In addition, \eqref{eq:cost} omits two costs that do belong to the deliverable: the verifier's compute $c_v$ (small, but measurable) and the human effort of writing and reviewing the spec, $c_h$, amortized per deliverable. The total cost is $\bar{\cost}_{\mathrm{tot}}=\bar{\cost}+c_v+c_h$. The requirements-discovery layer that we are developing in parallel (stories approved by the person and deterministically compiled into a spec) aims precisely at reducing $c_h$.
+
+\section{Experimental Evidence}
+\label{sec:evidence}
+
+\subsection{Tasks and Arms}
+\label{sec:tasks}
+
+Tasks T2--T5 belong to the project's benchmark (T1 is an informative calibration task and is not part of the decisive results). Each task is evaluated in two \emph{arms}: \emph{AXON} (the agent builds on the graph) and the \emph{baseline} (the same agent modifies a strict TypeScript repository with tests), with the same requirements statement. A \emph{run} is one complete attempt by an agent; it succeeds only if it passes the visible and the hidden cases of all its steps. Table~\ref{tab:tasks} describes each task; in T3, the suffix (100 or 500) is the size of the base project in functions, that is, in defined names.
+
+To make this concrete, consider T2, the task written from scratch. The agent is asked to build a small accounting application: accounts with an owner and a balance, and money movements between them. There are four operations: open an account, query its balance, transfer money, and list an account's movements. The difficulty lies not in the volume of code but in the exactness of the rules. For example, a transfer checks six conditions in a fixed order (a positive amount, different accounts, the origin exists, the destination exists, the movement id has not been used before, and the origin has enough balance); the first failure determines the result and nothing is written. If all goes well, the sum of all balances remains unchanged, and a sum that would overflow the 64-bit integer aborts without leaving any change. It is a bounded task that nevertheless demands precision, and it measures the cost of writing a new program from beginning to end.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Tasks of the main campaign.}
+\label{tab:tasks}
+\begin{tabular}{@{}l p{0.52\linewidth} p{0.24\linewidth}@{}}
+\toprule
+Task & What is asked & What it measures \\
+\midrule
+T2 & Build from scratch a ledger of transfers between accounts: account creation, balance lookup, a transfer with six ordered validations and an overflow-checked sum, and a listing of movements. & Writing a new program \\
+T3-100, T3-500 & A chain of three requirement changes on an existing orders-and-inventory project: (1) change the tax computation and rounding in a shared helper, (2) extend the customer record while preserving existing data, (3) add a per-customer summary that reuses helpers. The project has $\approx$100 or $\approx$500 functions, with the same core and more periphery. & Incremental evolution and effect of project size \\
+T4 & Fix a project of $\approx$100 functions whose spec has failing cases; the cause lies in a shared helper and the spec cannot be modified. & Localized fix \\
+T5 & A cross-cutting change: tax now depends on the product category and a root is renamed, together with all of its dependents. & Refactor with many dependents \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Main Campaign}
+
+Phase 2 compared AXON with a TypeScript baseline using the same model (Codex). The preregistered protocol ran 50 decisive runs on tasks T2--T5 (Table~\ref{tab:tasks}): five runs per arm and task, per-cell medians, and $90\pc$ bootstrap intervals. Both arms achieved 25/25 successes, on both visible and hidden cases, so there is no observable difference in $p$.
+
+\begin{itemize}[nosep]
+  \item Total tokens: $-15.6\pc$ with AXON (90\pc{} CI: $3.6\pc$ to $22.8\pc$ reduction).
+  \item Monetary cost: $+1.4\pc$, with an interval compatible with either a gain or a loss.
+\end{itemize}
+
+With a token ratio of $\approx 0.84$ and a cost ratio of $\approx 1.01$, the effective price per token for AXON was approximately $1.2$ times that of the baseline (a figure derived from the aggregates, without an interval). The recorded cause is the tool-description prefix and a worse proportion of cached input. Figure~\ref{fig:resultados} shows it: the measured token savings did \emph{not} translate into cost savings. This is the main empirical conclusion and it conditions the rest of the paper.
+
+\begin{table}[h]
+\centering
+\caption{AXON/baseline token ratio per task (per-cell medians, $n=5$ per arm).}
+\begin{tabular}{lrl}
+\toprule
+Task & Ratio & Reading \\
+\midrule
+T2 & 0.57 & clear advantage on a broad change \\
+T3-100 & 0.78 & advantage on incremental evolution \\
+T3-500 & 0.67 & larger advantage as the project grows \\
+T4 & 1.38 & disadvantage on a localized fix \\
+T5 & 1.05 & practically a tie, with a higher fixed cost \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=1.0\linewidth]{figs/en/fig_resultados.pdf}
+\caption{AXON/baseline ratio (dashed line = 1; lower is better). (a) Green: AXON uses fewer tokens; red: more. (b) The token savings (0.84) do not translate into cost savings (1.01) because the effective price per token is higher (1.20, derived from the aggregates, without an interval).}
+\label{fig:resultados}
+\end{figure}
+
+\subsection{Model Dependence}
+
+In exploratory rounds, Codex and Claude Sonnet found advantages on some large tasks, while DeepSeek Flash spent between 1.5 and 4.4 times more tokens with the syntax available at the time. The affinity between model and interface is part of the measured system. This dependence is precisely the one that fine-tuning would aim to reduce.
+
+\subsection{Preliminary Observation with a Small Model}
+
+As a feasibility probe, a local model of roughly 2 billion parameters, without fine-tuning, solved none of ten runs of a minimal task (0/10 across three prompt variants): it invented helper functions, left parentheses unclosed, and truncated its output. This is a baseline observation, not an experiment; it shows room for improvement, but also that a small model does not use the interface without adaptation.
+
+\subsection{Threats to Validity}
+
+Samples of 3--5 runs per cell; a baseline without an equivalent graph tool in the main campaign; some language improvements evaluated after the protocol freeze (and therefore outside the preregistration); a single provider in the decisive campaign; tasks designed by the authors of the substrate. Independent replication is needed, with new tasks, more models, and human teams.
+
+\section{Fine-Tuning as the Main Lever for Inference Savings}
+\label{sec:finetune}
+
+\subsection{Why Fine-Tuning Acts on the Components of Cost}
+
+On its own, the AXON interface reduced the volume of context on broad changes, but it imposes a fixed cost that the base model must pay on every turn. A model fine-tuned on the interface can change four factors of the cost \eqref{eq:cost}--\eqref{eq:decomp}:
+\begin{enumerate}[nosep]
+  \item \textbf{Prefix $F$.} If the correct use of the tools and the syntax is internalized in the weights, the instructions and examples can be shortened or removed from the prompt, and the remaining prefix is stable and cacheable.
+  \item \textbf{Iterations $T$.} A model trained on structured verifier errors and their correct repairs should converge in fewer repair rounds.
+  \item \textbf{Success $p$.} Reducing syntactically invalid outputs (such as those in the previous section) raises $p$ and thereby lowers the factor $1/p$.
+  \item \textbf{Price per token $c_\bullet$.} If the deterministic verifier takes over part of the burden of remembering constraints, a smaller and cheaper model could reach the same $p$.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figs/en/fig_palancas.pdf}
+\caption{Levers of fine-tuning on cost. Fine-tuning acts on four factors that group into the token ratio $\tau$, the success ratio $\sigma$, and the price ratio $\rho$. This is a diagram of the hypothesis, not a result.}
+\label{fig:palancas}
+\end{figure}
+
+\subsection{Multiplicative Model}
+
+Let $\tau$ be the per-run token ratio, $\rho$ the ratio of effective price per token, and $\sigma=p_{\mathrm{ft}}/p_{\mathrm{base}}$ the success ratio, of the fine-tuned system relative to a reference model. Then
+\begin{equation}
+\frac{\bar{\cost}_{\mathrm{ft}}}{\bar{\cost}_{\mathrm{base}}} \;=\; \frac{\rho\,\tau}{\sigma}.
+\label{eq:ratio}
+\end{equation}
+Fine-tuning acts on all three factors at once, and their effects compound. Figure~\ref{fig:palancas} outlines the levers, and Figure~\ref{fig:sens} and Table~\ref{tab:sens} show the sensitivity of \eqref{eq:ratio}. The values are \emph{illustrative scenarios} computed arithmetically from \eqref{eq:ratio}; they are not measurements.
+
+\begin{table}[h]
+\centering
+\caption{Cost ratio per verified task according to \eqref{eq:ratio}. Illustrative scenarios, not measured.}
+\label{tab:sens}
+\begin{tabular}{lccc}
+\toprule
+Effective price $\rho$ & $\tau=1.0;\ \sigma=1$ & $\tau=0.7;\ \sigma=1$ & $\tau=0.7;\ \sigma=0.8$ \\
+\midrule
+1.0 & 1.00 & 0.70 & 0.88 \\
+0.5 & 0.50 & 0.35 & 0.44 \\
+0.2 & 0.20 & 0.14 & 0.18 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The relevant reading is twofold. First, with the current interface the measured point is $\rho\approx 1.2$ and $\tau\approx 0.84$, that is, a ratio of $\approx 1.01$: the savings are limited by $\rho$. Second, a reduction in $\rho$ (a smaller model or better caching, possible only if the model reaches the same $\sigma$) has a larger effect than any plausible improvement in $\tau$. The value of fine-tuning lies in making that shift in $\rho$ feasible without losing $\sigma$.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{figs/en/fig_sens.pdf}
+\caption{Sensitivity of the cost ratio $\rho\tau/\sigma$. The dashed line marks break-even with the baseline. The lines are illustrative scenarios; the red dot is the campaign measurement. Reducing $\rho$ without losing $\sigma$ moves the system below break-even.}
+\label{fig:sens}
+\end{figure}
+
+\subsection{Hypotheses}
+
+\begin{description}[nosep]
+  \item[H1] A model fine-tuned on AXON reduces $F$ (instruction-prefix tokens) without reducing $p$.
+  \item[H2] The fine-tuned model needs fewer repair iterations $T$ than the same model without fine-tuning on held-out tasks.
+  \item[H3] A small model fine-tuned on AXON matches the $p$ of a larger untuned model working on conventional TypeScript, at a lower cost $\bar{\cost}$.
+  \item[H4] The effect holds on tasks and domains not seen in training (generalization).
+\end{description}
+
+\subsection{Proposed Experimental Design}
+
+\begin{itemize}[nosep]
+  \item \textbf{$2\times2$ design} (Figure~\ref{fig:diseno}) with the same base model: \{untuned, fine-tuned\} $\times$ \{TypeScript, AXON\}. Fine-tuning must also be measured on TypeScript to separate the effect of the interface from the effect of the additional training.
+  \item \textbf{Training data:} trajectories attempt $\rightarrow$ structured error $\rightarrow$ repair $\rightarrow$ spec satisfied, filtered by the verifier (only those that pass are kept). Filtering is automatic because the spec is executable.
+  \item \textbf{Hold-out:} evaluation tasks, and their generating families, are excluded from training; decontamination is declared.
+  \item \textbf{Metrics:} $\bar{\cost}$ with explicit list prices, $p$ (hidden cases), tokens broken down by type, latency, repairs, tool calls; bootstrap intervals, with tasks and threshold preregistered.
+  \item \textbf{Model ladder:} first a small open model (which allows local execution and full control of the weights); then a general-purpose model fine-tuned by a provider, where possible.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{figs/en/fig_diseno.pdf}
+\caption{$2\times2$ design with the same base model. Comparing (D) with (C) and (B) separates the contribution of fine-tuning from that of the interface.}
+\label{fig:diseno}
+\end{figure}
+
+\section{The Generative Paradox as a Design Opportunity}
+\label{sec:paradox}
+
+For anyone running models at scale, the primary goal is to reduce inference cost; what is valuable about this approach is that this goal and the benefit to the person advance together. An interface that makes inference cheaper through an executable specification, a traceable history, and readable projections delivers, downstream, a product that the person can understand, review, and correct with less effort. It is a win--win: the provider spends less compute per deliverable and the person governs what they receive more effectively.
+
+Trifonov and Levit \cite{trifonov2026} provide the framework for thinking about that second half. They argue that a human--AI collaboration can improve the joint product without the human retaining the capacity to understand, challenge, and repair it once the assistance changes or disappears, and they distinguish four manifestations: \emph{performance} (the product improves, individual capability does not), \emph{assistance} (less friction removes opportunities for generation, justification, or monitoring), \emph{ownership} (formal authorship and consequential control diverge), and \emph{capability stock} (locally efficient delegation narrows the future distribution of expertise). It is a position paper with falsifiable predictions, written for education; its application to coding agents is our own extrapolation, not a result of theirs.
+
+Seen as an opportunity, AXON provides the means for fine-tuning and improvement of the human experience to go hand in hand. The design implications, which we treat as lines of work rather than proven facts, are:
+\begin{itemize}[nosep]
+  \item the spec, the authority bounds, the history, and the readable projections remain in the person's hands, and fine-tuning on the interface does not degrade them but reduces the cost of maintaining them;
+  \item requirements-definition phases can elicit the person's assumptions and edge cases before generating the solution, following the canonical \emph{Anti-Prompt} sequence \cite{trifonov2026}, so that the person approves in plain language what will be built;
+  \item measuring such a system can include retained human capability alongside cost per task, turning it into another outcome to improve.
+\end{itemize}
+
+\section{Economic Viability}
+
+\paragraph{The central argument is the reduction of inference cost.} For a model provider, what matters is how much it costs to deliver a correct, verified task. The executable spec provides an observable acceptance condition, which makes it possible to measure that cost per deliverable and, from there, tie prices to completed tasks rather than generated text, with model selection and compute budget managed by the provider. A small fine-tuned model that satisfies H3 would reduce compute per deliverable, allow serving more tasks with the same infrastructure, open up work that is uneconomical today (continuous maintenance, routine migrations), or improve margin. All of this depends on H1--H4 being confirmed; until then, it is a projection. Nor does it shift responsibility to the verifier or guarantee that a spec is complete.
+
+\paragraph{How the argument has been refined.} The course of this work shows increasing precision, and each step has left the remaining gap smaller and better identified:
+\begin{enumerate}[nosep]
+  \item We started from token savings ($-15.6\pc$ in the campaign, down to $0.57$ on T2).
+  \item The measurement showed that tokens are not cost: monetary cost was neutral ($+1.4\pc$).
+  \item We therefore changed the metric to inference cost per verified task and decomposed it into a multiplicative model ($\rho\tau/\sigma$).
+  \item The decomposition located the gap: it is not the number of tokens but their effective price (the tool prefix and the share of cached input), a factor on which fine-tuning and protocol design can act directly.
+\end{enumerate}
+Each clarification has brought the proposal closer to what can be measured, and the remaining levers are concrete.
+
+\paragraph{The effect of scale: 1\pc{} is enough.} If a system reduces the cost per verified deliverable by a fraction $s$ without changing $p$, the absolute savings over $N$ deliverables are $s\,N\,\bar{\cost}_{\mathrm{base}}$. With $s=1\pc$ and $N=10^{6}$ deliverables, this equals the entire cost of $10^{4}$ tasks, and it grows linearly with volume. For anyone running millions of development tasks, an inference saving of just 1\pc{} already justifies the proposal, and anything above that threshold is a gain. That is the most pessimistic scenario we consider, and there are several ways to reach it that do not depend on a single lever: further language and protocol optimizations (a shorter fixed prefix, better cache utilization, more informative error messages), prompt improvements and, if the provider decides to do so, some fine-tuning of the model on the interface. The condition is that this margin be \emph{real}: its confidence interval must exclude zero and $p$ must not decrease. The current campaign does not yet demonstrate this (cost $+1.4\pc$, indistinguishable from zero), but it shows that the token margin exists on broad changes and that the remaining gap is one of effective price.
+
+\paragraph{Win--win.} Reducing inference cost and improving the person's experience do not compete: the same executable spec that makes it possible to measure and reduce the cost of the deliverable gives the person a clear acceptance criterion, and the readable projections used to supervise the system allow them to understand and correct what they receive. The provider gains margin; the person gains control.
+
+\section{Conclusion}
+
+AXON is a substrate that works end to end and that matched the success rate of a conventional baseline, with a 15.6\pc{} reduction in tokens (up to 43\pc{} on a broad change) and a neutral monetary cost in the current campaign. The appropriate metric is the inference cost per verified task, and the cost decomposition identifies the levers with the most potential: the instruction prefix, the repair iterations, success, and model size. These are precisely the ones that fine-tuning on the interface can improve, and at the scale of millions of deliverables a saving of just 1\pc{} is enough to make the proposal profitable. This trajectory is supported by a cost model, hypotheses, and an experimental design, but confirming it is the next step. And it is a win--win: lower inference cost for those operating the models, and a product that is easier for the person to understand and govern.
+
+\paragraph{Availability.} The source code, the decision documents, and the full corpus are not part of this publication and should accompany a future release to allow independent replication.
+
+\begin{thebibliography}{9}
+
+\bibitem{axon2026}
+AXON Project Team (2026).
+\textit{AXON: a verifiable representation for agent-driven software development} (original title in Spanish: \textit{AXON: una representación verificable para el desarrollo de software por agentes}). Internal research document.
+
+\bibitem{cao2026}
+Cao, Z. (2026).
+\textit{The End of Software Engineering: How AI Agents Are Fundamentally Restructuring the Software Paradigm}. arXiv:2606.05608v1 [cs.SE].
+
+\bibitem{trifonov2026}
+Trifonov, M., and Levit, V.~E. (2026).
+\textit{The generative paradox: the Anti-Prompt paradigm for human capability}. Position paper. arXiv:2610.40151v1.
+
+\end{thebibliography}
+
+\end{document}
