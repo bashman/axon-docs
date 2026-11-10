@@ -27,9 +27,16 @@ Research papers and documentation for **AXON**, an experimental substrate in whi
 
 ![Measured token ratio vs. cost](papers/inference-cost/figs/en/fig_resultados.png)
 
+## Backend roadmap (3 months)
+
+A 12-week path covering the usual backend work: foundations, real services and production readiness.
+
+![Backend development roadmap, 3 months](roadmap/roadmap-en.png)
+
 ## Repository layout
 
 ```
+roadmap/                              3-month backend roadmap (en, es)
 papers/
   inference-cost/
     axon-paper.{en,es}.{md,tex,pdf}   paper in each language

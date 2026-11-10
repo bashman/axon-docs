@@ -27,9 +27,16 @@ Papers y documentación de **AXON**, un sustrato experimental en el que agentes 
 
 ![Razón de tokens medida frente al coste](papers/inference-cost/figs/es/fig_resultados.png)
 
+## Roadmap de backend (3 meses)
+
+Ruta de 12 semanas con lo habitual de backend: fundamentos, servicios reales y preparación para producción.
+
+![Ruta de desarrollo backend, 3 meses](roadmap/roadmap-es.png)
+
 ## Estructura del repositorio
 
 ```
+roadmap/                              3-month backend roadmap (en, es)
 papers/
   inference-cost/
     axon-paper.{en,es}.{md,tex,pdf}   paper en cada idioma
