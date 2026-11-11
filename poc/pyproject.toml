@@ -1,0 +1,16 @@
+[project]
+name = "axon-story-poc"
+version = "0.1.0"
+description = "A self-contained AXON user-story-to-HTTP proof of concept"
+requires-python = ">=3.11"
+dependencies = ["blake3>=1.0.11", "mcp>=2.3.0", "wasmtime>=49.0.0"]
+
+[project.scripts]
+axon = "axon.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["axon"]
